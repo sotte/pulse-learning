@@ -6,6 +6,13 @@
 #include <set>
 #include <map>
 
+#include <lbfgs.h>
+
+#ifndef DEBUG
+    #define ARMA_NO_DEBUG
+#endif
+#include <armadillo>
+
 /**
  * Learn a feature set and predictive Conditional Random Field model.
  *
@@ -70,7 +77,8 @@
  * \f$\mathbf{x}\f$.
  *
  * In the partial derivative of the objective \f$\ell\f$ with respect to the
- * \f$i^{th}\f$ feature, the sum over \f$\mathbf{y}\f$ can then be written as
+ * \f$i^{th}\f$ feature, the sum over \f$\mathbf{y}\f$ for
+ * \f$\mathbf{x}^{(n)}\f$ can then be written as
  *
  * \f{align}
  * \ldots &= \sum_{k}
@@ -87,40 +95,40 @@
  * \right]_{i}~,
  * \f}
  *
- * where the \f$\exp\f$ is to be taken elementwise. So for a data point
- * \f$(\mathbf{x}^{(n)},\mathbf{y}^{(n)})\f$ given
- * \f$\mathbf{F}=\mathbf{F}(\mathbf{x}^{(n)})\f$ and \f$y^{*}\f$ being the index
- * of \f$\mathbf{y}^{(n)}\f$ we can compute
+ * where the \f$\exp\f$ is to be taken elementwise and
+ * \f$\left(\mathbf{F}^{\top}\right)_{i}\f$ denotes the \f$i^{th}\f$ column of
+ * \f$\mathbf{F}\f$. We can compute
+ * \f$\mathbf{F}=\mathbf{F}(\mathbf{x}^{(n)})\f$ for any given data point
+ * \f$(\mathbf{x}^{(n)},\mathbf{y}^{(n)})\f$, further \f$i^{*}\f$ be the index
+ * of \f$\mathbf{y}^{(n)}\f$. We can then compute
  * \f$\ell(\boldsymbol{\mathbf{\theta}})\f$ and
  * \f$\nabla\ell(\boldsymbol{\mathbf{\theta}})\f$ as follows
  *
  * \f{align}
  * \mathtt{lin} &= \boldsymbol{\mathbf{\theta}}^{\top}\mathbf{F} \\
  * \mathtt{explin} &= \exp \left( \mathtt{lin} \right) \\
- * \mathtt{z} &= \sum_{i} \mathtt{explin}_{i} \\
- * \ell(\boldsymbol{\mathbf{\theta}}) &= \mathtt{lin}_{y^{*}} - \log(\mathtt{z}) \\
- * \nabla\ell(\boldsymbol{\mathbf{\theta}}) &= \left(\mathbf{F}^{\top}\right)_{y^{*}} -
+ * \mathtt{z} &= \sum_{i} \mathtt{explin}_{\,i} \\
+ * \ell(\boldsymbol{\mathbf{\theta}}) &= \mathtt{lin}_{\,i^{*}} - \log(\mathtt{z}) \\
+ * \nabla\ell(\boldsymbol{\mathbf{\theta}}) &= \left(\mathbf{F}^{\top}\right)_{i^{*}} -
  * \frac{
  * \mathbf{F} \,
  * \mathtt{explin}^{\top}
  * }{
  * \mathtt{z}
- * }
+ * }~.
  * \f}
  *
- * where \f$\left(\mathbf{F}^{\top}\right)_{i}\f$ denotes the
- * \f$i^{th}\f$ column of \f$\mathbf{F}\f$. The sum over data
- * points can then be computed in parallel.
+ * The sum over data points can then be computed in parallel.
  *
  * <b>Partial Derivatives of New Features</b>
  *
- * All features from a new set \f$\widetilde{\mathcal{F}}\f$ are included with
- * an initial weight of zero. The vector \f$\mathtt{lin} =
- * \boldsymbol{\mathbf{\theta}}^{\top}\mathbf{F}\f$ (containing
- * all linear combinations for the different values of
- * \f$\mathbf{y}\f$) thus does not change. Correspondingly,
- * \f$\mathtt{explin}\f$ and \f$\mathtt{z}\f$ do not change either. To compute
- * the gradient for the new features only, the corresponding feature matrix
+ * \f$\widetilde{\mathcal{F}}\f$ be the newly included candidate features that,
+ * at that point, have zero-weight. The vector \f$\mathtt{lin} =
+ * \boldsymbol{\mathbf{\theta}}^{\top}\mathbf{F}\f$ (containing all linear
+ * combinations for the different values of \f$\mathbf{y}\f$) thus does not
+ * change. Correspondingly, \f$\mathtt{explin}\f$ and \f$\mathtt{z}\f$ do not
+ * change either. To compute the gradient for the new features only, the
+ * candidate feature matrix
  *
  * \f{align}
  * \widetilde{\mathbf{F}}(\mathbf{x})_{ij} &= \widetilde{\mathbf{f}}_{i}(\mathbf{x},\mathbf{y}_{j})
@@ -130,7 +138,7 @@
  * above)
  *
  * \f{align}
- * \nabla\ell(\boldsymbol{\mathbf{\theta}}_{new}) &= \left(\widetilde{\mathbf{F}}^{\top}\right)_{y^{*}} -
+ * \nabla\ell(\boldsymbol{\mathbf{\theta}}_{new}) &= \left(\widetilde{\mathbf{F}}^{\top}\right)_{i^{*}} -
  * \frac{
  * \widetilde{\mathbf{F}} \,
  * \mathtt{explin}^{\top}
@@ -144,11 +152,38 @@
  * the old features.
  */
 class TemporallyExtendedModel: public AbstractTemporallyExtendedModel {
-protected:
+
+    //----typdefs/classes----//
+public:
     enum FEATURE_TYPE { ACTION, OBSERVATION, REWARD };
     typedef std::tuple<FEATURE_TYPE,int,double> basis_feature_t;
     typedef std::set<basis_feature_t> feature_t;
     typedef std::map<feature_t,double> feature_set_t;
+    typedef arma::Mat<double> mat_t;
+    typedef arma::Col<double> col_vec_t;
+    typedef arma::Row<double> row_vec_t;
+
+    //----members----//
+protected:
+    // PULSE parameters
+    double regularization = 0;
+    int horizon_extension = 1;
+    int maximum_horizon = -1;
+    double  gradient_threshold = 1e-5;
+    double parameter_threshold = 1e-5;
+    int max_inner_loop_iterations = 0;
+    int max_outer_loop_iterations = 0;
+    double likelihood_threshold = 0;
+    // other stuff
+    data_t data;
+    std::set<int> unique_actions;
+    std::set<int> unique_observations;
+    std::set<double> unique_rewards;
+    feature_set_t feature_set;
+    std::vector<int> outcome_indices;
+    std::vector<mat_t> F_matrices;
+
+    //----methods----//
 public:
     TemporallyExtendedModel() = default;
     virtual ~TemporallyExtendedModel() = default;
@@ -164,24 +199,26 @@ public:
     virtual AbstractTemporallyExtendedModel & set_max_outer_loop_iterations(int n) override {max_outer_loop_iterations=n;return *this;}
     virtual AbstractTemporallyExtendedModel & set_likelihood_threshold(double d) override {likelihood_threshold=d;return *this;}
 protected:
-    double regularization = 0;
-    int horizon_extension = 1;
-    int maximum_horizon = -1;
-    double  gradient_threshold = 1e-10;
-    double parameter_threshold = 1e-10;
-    int max_inner_loop_iterations = -1;
-    int max_outer_loop_iterations = -1;
-    double likelihood_threshold = 1e-10;
-    data_t data;
-    std::set<int> unique_actions;
-    std::set<int> unique_observations;
-    std::set<double> unique_rewards;
-    feature_set_t feature_set;
-
     void expand_feature_set();
     double optimize_feature_weights();
     void shrink_feature_set();
     void print_feature_set();
+    void update_F_matrices();
+    static lbfgsfloatval_t neg_log_likelihood(void * instance,
+                                              const lbfgsfloatval_t * weights,
+                                              lbfgsfloatval_t * gradient,
+                                              const int n,
+                                              const lbfgsfloatval_t step);
+    static int progress(void * instance,
+                        const lbfgsfloatval_t * weights,
+                        const lbfgsfloatval_t * gradient,
+                        const lbfgsfloatval_t objective_value,
+                        const lbfgsfloatval_t xnorm,
+                        const lbfgsfloatval_t gnorm,
+                        const lbfgsfloatval_t step,
+                        int nr_variables,
+                        int iteration_nr,
+                        int ls);
 };
 
 #endif /* TEMPORALLY_EXTENDED_MODEL_H_ */

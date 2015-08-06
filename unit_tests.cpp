@@ -23,7 +23,7 @@ TEST(ATEM, BasicTest) {
         // use in implementation of the simple 2x2 world
         int one_step_observation = 0;
         int two_step_observation = 0;
-        for(int i=0; i<100; ++i) {
+        for(int i=0; i<10000; ++i) {
             // perform transition
             int action = rand()%5; // 0:up, 1:down, 2:left, 3:right, 4:stay
             int observation = one_step_observation; // 0:upper-left, 1:upper-right, 2:lower-left, 3:lower-right
@@ -97,16 +97,17 @@ TEST(ATEM, BasicTest) {
         }
     }
 
-    double obj = model->set_regularization(1).
-        set_data(data).
+    double obj = model->set_data(data).
+        set_regularization(0.001).
         set_horizon_extension(1).
-        set_maximum_horizon(10).
-        set_gradient_threshold(1e-10).
-        set_parameter_threshold(1e-10).
-        set_max_inner_loop_iterations(100).
-        set_max_outer_loop_iterations(3).
-        set_likelihood_threshold(1e-10).
+        set_maximum_horizon(2).
+        // set_likelihood_threshold(1e-10).
+        // set_gradient_threshold(1e-10).
+        // set_parameter_threshold(1e-10).
+        // set_max_inner_loop_iterations(100).
+        set_max_outer_loop_iterations(2).
         optimize();
+    //double obj = model->set_data(data).optimize();
     DEBUG_OUT(0,"Objective value: " << obj);
 
     double pred =  model->get_prediction(data);

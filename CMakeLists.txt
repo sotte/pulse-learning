@@ -18,21 +18,25 @@ endif()
 
 ## ATEM library
 add_library(ATEM
-	AbstractTemporallyExtendedModel.h
-	TemporallyExtendedModel.h
-	TemporallyExtendedModel.cpp
+    AbstractTemporallyExtendedModel.h
+    TemporallyExtendedModel.h
+    TemporallyExtendedModel.cpp
+    lbfgs_codes.h
+    lbfgs_codes.cpp
 )
 #target_include_directories(ATEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 #target_link_libraries(ATEM PUBLIC Qt5::Core)
 
 ## Unittests
 add_executable(GTest
-	main.cpp
-	AbstractTemporallyExtendedModel.h
-	TemporallyExtendedModel.h
-	unit_tests.cpp
+    main.cpp
+    AbstractTemporallyExtendedModel.h
+    TemporallyExtendedModel.h
+    unit_tests.cpp
 )
 target_link_libraries(GTest PUBLIC
     -lgtest
+    -larmadillo
+    -llbfgs
     ATEM
 )
