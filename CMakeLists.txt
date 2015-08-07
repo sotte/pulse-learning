@@ -19,7 +19,6 @@ endif()
 
 ## ATEM library
 add_library(ATEM
-    AbstractTemporallyExtendedModel.h
     TemporallyExtendedModel.h
     TemporallyExtendedModel.cpp
     lbfgs_codes.h
@@ -31,7 +30,6 @@ add_library(ATEM
 ## Unittests
 add_executable(GTest
     main.cpp
-    AbstractTemporallyExtendedModel.h
     TemporallyExtendedModel.h
     unit_tests.cpp
 )

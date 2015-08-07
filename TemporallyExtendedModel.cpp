@@ -8,7 +8,7 @@
 #define USE_OMP
 
 #define DEBUG_STRING "TEM: "
-#define DEBUG_LEVEL 4
+#define DEBUG_LEVEL 0
 #include "debug.h"
 
 using std::cout;
@@ -55,7 +55,7 @@ std::ostream& operator<<(std::ostream & out,
 
 // member function definitions
 
-AbstractTemporallyExtendedModel & TemporallyExtendedModel::set_data(const data_t & data_) {
+TemporallyExtendedModel & TemporallyExtendedModel::set_data(const data_t & data_) {
     DEBUG_OUT(1,"Set data");
     DEBUG_INDENT;
     data = data_;
@@ -75,45 +75,27 @@ AbstractTemporallyExtendedModel & TemporallyExtendedModel::set_data(const data_t
         DEBUG_OUT(3,"Unique actions");
         {
             DEBUG_INDENT;
-            for(auto action : unique_actions) {
+            for(auto & action : unique_actions) {
                 DEBUG_OUT(3, action);
             }
         }
         DEBUG_OUT(3,"Unique observations");
         {
             DEBUG_INDENT;
-            for(auto observation : unique_observations) {
+            for(auto & observation : unique_observations) {
                 DEBUG_OUT(3, observation);
             }
         }
         DEBUG_OUT(3,"Unique rewards");
         {
             DEBUG_INDENT;
-            for(auto reward : unique_rewards) {
+            for(auto & reward : unique_rewards) {
                 DEBUG_OUT(3, reward);
             }
         }
     }
-    // compute outcome indices
+    // resize outcome indices
     outcome_indices.assign(data.size(),-1);
-    for(int data_idx=0; data_idx<(int)data.size(); ++data_idx) {
-        int outcome_index = 0;
-        bool found = false;
-        for(auto & observation : unique_observations) {
-            for(auto & reward : unique_rewards) {
-                DATA_POINT(data_point, data_action, data_observation, data_reward);
-                data_point = data[data_idx];
-                if(data_observation==observation && data_reward==reward) {
-                    outcome_indices[data_idx] = outcome_index;
-                    found = true;
-                    break;
-                }
-                ++outcome_index;
-            }
-            if(found) break;
-        }
-        DEBUG_EXPECT(found);
-    }
     return *this;
 }
 
@@ -137,7 +119,7 @@ double TemporallyExtendedModel::optimize() {
         shrink_feature_set();
 
         // checking terminal conditions
-        if(new_likelihook-likelihood<likelihood_threshold) {
+        if((new_likelihook-likelihood)/likelihood<likelihood_threshold) {
             likelihood = new_likelihook;
             break;
         } else {
@@ -148,9 +130,47 @@ double TemporallyExtendedModel::optimize() {
     return likelihood;
 }
 
-double TemporallyExtendedModel::get_prediction(const data_t &) {
-    DEBUG_OUT(1,"get_prediction()");
-    return 0;
+double TemporallyExtendedModel::get_prediction(const data_t & pred_data) const {
+    DEBUG_OUT(5,"Computing prediction");
+    DEBUG_EXPECT(pred_data.size()>0);
+    // temporally add the given observation and reward to the unique sets in
+    // case they did not occur in the training data
+    auto unique_observations_copy = unique_observations;
+    auto unique_rewards_copy = unique_rewards;
+    {
+        DATA_POINT(tuple, action, observation, reward);
+        tuple = pred_data.back();
+        unique_observations_copy.insert(observation);
+        unique_rewards_copy.insert(reward);
+    }
+    // comput F-matrix
+    mat_t F = zeros<mat_t>(feature_set.size(),
+                           unique_observations_copy.size()*unique_rewards_copy.size());
+    int outcome_idx;
+    fill_F_matrix(feature_set,
+                  unique_actions,
+                  unique_observations_copy,
+                  unique_rewards_copy,
+                  pred_data,
+                  pred_data.size()-1,
+                  F,
+                  outcome_idx);
+    DEBUG_EXPECT(outcome_idx>=0);
+    // get weights
+    col_vec_t w;
+    {
+        w.zeros(feature_set.size());
+        int feature_idx = 0;
+        for(auto & feature : feature_set) {
+            w(feature_idx) = feature.second;
+            ++feature_idx;
+        }
+    }
+    // interim variables
+    const row_vec_t lin = w.t()*F;
+    const row_vec_t exp_lin = arma::exp(lin);
+    const double z = arma::sum(exp_lin);
+    return exp_lin(outcome_idx)/z;
 }
 
 double TemporallyExtendedModel::optimize_weights() {
@@ -192,8 +212,8 @@ double TemporallyExtendedModel::optimize_weights() {
                          progress,
                          this,
                          &param);
-        IF_DEBUG(1) {cout << endl;}
-        DEBUG_OUT(1,"status code = " << ret << " ( " << lbfgs_code(ret) << " )");
+        IF_DEBUG(2) {cout << endl;}
+        DEBUG_OUT(2,"status code = " << ret << " ( " << lbfgs_code(ret) << " )");
         // get weights
         {
             int feature_idx = 0;
@@ -208,10 +228,6 @@ double TemporallyExtendedModel::optimize_weights() {
     // print likelihood
     DEBUG_OUT(3,"likelihood = " << exp(-objective_value));
     return exp(-objective_value);
-}
-
-const TemporallyExtendedModel::feature_set_t & TemporallyExtendedModel::get_feature_set() const {
-    return feature_set;
 }
 
 bool TemporallyExtendedModel::check_derivatives() {
@@ -275,13 +291,13 @@ void TemporallyExtendedModel::expand_feature_set() {
     // initialize if feature set is empty expand otherwise
     if(feature_set.empty()) {
         // add simple basis features
-        for(auto action : unique_actions) {
+        for(auto & action : unique_actions) {
             feature_set[feature_t({basis_feature_t(ACTION,0,action)})] = 0;
         }
-        for(auto observation : unique_observations) {
+        for(auto & observation : unique_observations) {
             feature_set[feature_t({basis_feature_t(OBSERVATION,0,observation)})] = 0;
         }
-        for(auto reward : unique_rewards) {
+        for(auto & reward : unique_rewards) {
             feature_set[feature_t({basis_feature_t(REWARD,0,reward)})] = 0;
         }
     } else {
@@ -311,17 +327,17 @@ void TemporallyExtendedModel::expand_feature_set() {
         // augment with simple basis features, and add to set
         for(auto & feature : initial_feature_set) {
             for(int t_idx = 0; t_idx>=max_extension; --t_idx) {
-                for(auto action : unique_actions) {
+                for(auto & action : unique_actions) {
                     feature_t f = feature.first;
                     f.insert(basis_feature_t(ACTION,t_idx,action));
                     feature_set[f] = 0;
                 }
-                for(auto observation : unique_observations) {
+                for(auto & observation : unique_observations) {
                     feature_t f = feature.first;
                     f.insert(basis_feature_t(OBSERVATION,t_idx,observation));
                     feature_set[f] = 0;
                 }
-                for(auto reward : unique_rewards) {
+                for(auto & reward : unique_rewards) {
                     feature_t f = feature.first;
                     f.insert(basis_feature_t(REWARD,t_idx,reward));
                     feature_set[f] = 0;
@@ -415,73 +431,22 @@ void TemporallyExtendedModel::update_F_matrices() {
     for(int data_idx=0; data_idx<(int)data.size(); ++data_idx) {
         DEBUG_OUT(6,"data point " << data_idx);
         DEBUG_INDENT;
-        int feature_idx = 0; // row index
-        for(auto & feature : feature_set) {
-            DEBUG_OUT(6,"Feature " << feature_idx);
-            DEBUG_INDENT;
-            int outcome_idx = 0; // column index
-            for(auto & observation : unique_observations) {
-                for(auto & reward : unique_rewards) {
-                    DEBUG_OUT(6,"Outcome " << outcome_idx
-                              << " (" << observation << ", " << reward << ")");
-                    DEBUG_INDENT;
-                    bool is_true = true;
-                    for(auto & basis_feature : feature.first) {
-                        //-----------------------------------//
-                        // all basis feature have to be true //
-                        //-----------------------------------//
-                        BASIS_FEATURE(tuple, type, time, value);
-                        tuple = basis_feature;
-                        DEBUG_EXPECT(time<=0);
-                        DEBUG_OUT(6,"Basis feature " << basis_feature);
-                        DEBUG_INDENT;
-                        // is the required time index accessible?
-                        if(data_idx+time<0) {
-                            DEBUG_OUT(6,"time idx inaccessible");
-                            is_true = false;
-                            break;
-                        }
-                        // get data point from required time
-                        DATA_POINT(data_point, data_action, data_observation, data_reward);
-                        data_point = data[data_idx+time];
-                        // does the value match?
-                        switch(type) {
-                        case ACTION:
-                            if(data_action!=value) is_true = false;
-                            break;
-                        case OBSERVATION:
-                            if(time==0 && observation!=value) is_true = false;
-                            if(time!=0 && data_observation!=value) is_true = false;
-                            break;
-                        case REWARD:
-                            if(time==0 && reward!=value) is_true = false;
-                            if(time!=0 && data_reward!=value) is_true = false;
-                            break;
-                        }
-                        // break
-                        if(!is_true) {
-                            DEBUG_OUT(6,"value mismatch");
-                            break;
-                        }
-                    }
-                    if(is_true) {
-                        F_matrices[data_idx](feature_idx,outcome_idx) = 1;
-                        DEBUG_OUT(6,"true");
-                    } else {
-                        DEBUG_OUT(6,"false");
-                    }
-                    ++outcome_idx;
-                }
-            }
-            ++feature_idx;
-        }
+        fill_F_matrix(feature_set,
+                      unique_actions,
+                      unique_observations,
+                      unique_rewards,
+                      data,
+                      data_idx,
+                      F_matrices[data_idx],
+                      outcome_indices[data_idx]);
+        DEBUG_EXPECT(outcome_indices[data_idx]>=0);
         #ifdef USE_OMP
         #pragma omp critical (TemporallyExtendedModel)
         #endif
         {
             ++progress;
             IF_DEBUG(4) {
-                cout << "\r" << (100*progress)/data.size() << "%" << std::flush;
+                cout << "\r" << (100*progress)/data.size() << "%    " << std::flush;
                 IF_DEBUG(6) cout << endl;
             }
         } // end critical
@@ -489,6 +454,85 @@ void TemporallyExtendedModel::update_F_matrices() {
     IF_DEBUG(4) {
         IF_DEBUG(6);// nothing to do
         else cout << endl;
+    }
+}
+
+void TemporallyExtendedModel::fill_F_matrix(const feature_set_t & feature_set,
+                                            const std::set<int> & unique_actions,
+                                            const std::set<int> & unique_observations,
+                                            const std::set<double> & unique_rewards,
+                                            const data_t & data,
+                                            const int & data_idx,
+                                            mat_t & F_matrix,
+                                            int & matching_outcome_index) {
+    matching_outcome_index = -1;
+    int feature_idx = 0; // row index
+    for(auto & feature : feature_set) {
+        DEBUG_OUT(6,"Feature " << feature_idx);
+        DEBUG_INDENT;
+        int outcome_idx = 0; // column index
+        for(auto & observation : unique_observations) {
+            for(auto & reward : unique_rewards) {
+                DEBUG_OUT(6,"Outcome " << outcome_idx
+                          << " (" << observation << ", " << reward << ")");
+                DEBUG_INDENT;
+                // check for matching outcome index
+                {
+                    DATA_POINT(tuple, data_action, data_observation, data_reward);
+                    tuple = data[data_idx];
+                    if(observation==data_observation && reward==data_reward)
+                        matching_outcome_index = outcome_idx;
+                }
+                // check basis features
+                bool is_true = true;
+                for(auto & basis_feature : feature.first) {
+                    //-----------------------------------//
+                    // all basis feature have to be true //
+                    //-----------------------------------//
+                    BASIS_FEATURE(tuple, type, time, value);
+                    tuple = basis_feature;
+                    DEBUG_EXPECT(time<=0);
+                    DEBUG_OUT(6,"Basis feature " << basis_feature);
+                    DEBUG_INDENT;
+                    // is the required time index accessible?
+                    if(data_idx+time<0) {
+                        DEBUG_OUT(6,"time idx inaccessible");
+                        is_true = false;
+                        break;
+                    }
+                    // get data point from required time
+                    DATA_POINT(data_point, data_action, data_observation, data_reward);
+                    data_point = data[data_idx+time];
+                    // does the value match?
+                    switch(type) {
+                    case ACTION:
+                        if(data_action!=value) is_true = false;
+                        break;
+                    case OBSERVATION:
+                        if(time==0 && observation!=value) is_true = false;
+                        if(time!=0 && data_observation!=value) is_true = false;
+                        break;
+                    case REWARD:
+                        if(time==0 && reward!=value) is_true = false;
+                        if(time!=0 && data_reward!=value) is_true = false;
+                        break;
+                    }
+                    // break
+                    if(!is_true) {
+                        DEBUG_OUT(6,"value mismatch");
+                        break;
+                    }
+                }
+                if(is_true) {
+                    F_matrix(feature_idx,outcome_idx) = 1;
+                    DEBUG_OUT(6,"true");
+                } else {
+                    DEBUG_OUT(6,"false");
+                }
+                ++outcome_idx;
+            }
+        }
+        ++feature_idx;
     }
 }
 
@@ -501,7 +545,7 @@ lbfgsfloatval_t TemporallyExtendedModel::neg_log_likelihood(void * instance,
     DEBUG_INDENT;
 
     // weights and gradient use given memory
-    const col_vec_t w(weights,n); // unfortunately have to copy :-(
+    const col_vec_t w(weights,n); // do I really have to copy?!
     col_vec_t grad(gradient,n,false);
 
     // get instance and number of data points
@@ -574,7 +618,16 @@ int TemporallyExtendedModel::progress(void * instance,
                                       int nr_variables,
                                       int iteration_nr,
                                       int ls) {
-    IF_DEBUG(1) {cout << "\rIteration " << iteration_nr
-                      << ", likelihood = " << exp(-objective_value) << std::flush;}
+    IF_DEBUG(2) {
+        IF_DEBUG(6) {
+            cout << "Iteration " << iteration_nr
+                 << ", likelihood = " << exp(-objective_value) << std::endl;
+            cout << "weights:" << endl;
+            for(int idx=0; idx<nr_variables; ++idx) cout << "    " << weights[idx] << endl;
+        } else {
+            cout << "\rIteration " << iteration_nr
+                 << ", likelihood = " << exp(-objective_value) << "    " << std::flush;
+        }
+    }
     return 0;
 }

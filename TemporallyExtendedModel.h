@@ -1,8 +1,8 @@
 #ifndef TEMPORALLY_EXTENDED_MODEL_H_
 #define TEMPORALLY_EXTENDED_MODEL_H_
 
-#include "AbstractTemporallyExtendedModel.h"
-
+#include <vector>
+#include <tuple>
 #include <set>
 #include <map>
 
@@ -120,6 +120,16 @@
  *
  * The sum over data points can then be computed in parallel.
  *
+ * <b>Predictions</b>
+ *
+ * In order to compute a prediction \f$p(\mathbf{y}|\mathbf{x})\f$ we first
+ * compute \f$\mathbf{F}(\mathbf{x})\f$ and \f$i^{*}\f$ and then compute the
+ * prediction as
+ *
+ * \f{align}
+ * p(\mathbf{y}|\mathbf{x}) &= \frac{\mathtt{explin}_{\,i^{*}}}{\mathtt{z}}~.
+ * \f}
+ *
  * <b>Partial Derivatives of New Features</b>
  *
  * \f$\widetilde{\mathcal{F}}\f$ be the newly included candidate features that,
@@ -151,10 +161,18 @@
  * features and \f$\mathtt{explin}\f$ and \f$\mathtt{z}\f$ are computed from
  * the old features.
  */
-class TemporallyExtendedModel: public AbstractTemporallyExtendedModel {
+class TemporallyExtendedModel {
+
+    // for unit tests
+    friend class TemporallyExtendedModelTest_FeatureTest_Test;
 
     //----typdefs/classes----//
 public:
+    typedef int action_t;
+    typedef int observation_t;
+    typedef double reward_t;
+    typedef std::tuple<action_t,observation_t,reward_t> data_point_t;
+    typedef std::vector<data_point_t> data_t;
     enum FEATURE_TYPE { ACTION, OBSERVATION, REWARD };
     typedef std::tuple<FEATURE_TYPE,int,double> basis_feature_t;
     typedef std::set<basis_feature_t> feature_t;
@@ -166,14 +184,22 @@ public:
     //----members----//
 protected:
     // PULSE parameters
-    double regularization = 0;
-    int horizon_extension = 1;
-    int maximum_horizon = -1;
-    double  gradient_threshold = 1e-5;
-    double parameter_threshold = 1e-5;
-    int max_inner_loop_iterations = 0;
-    int max_outer_loop_iterations = 0;
-    double likelihood_threshold = 0;
+    double regularization = 0;          ///< L1-regularization
+    int horizon_extension = 1;          ///< Extension of horizon in each
+                                        ///out-loop iteration
+    int maximum_horizon = -1;           ///< Maximum extension of horizon
+    double gradient_threshold = 1e-6;   ///< Threshold on ||g||/max(1,||x||) as
+                                        ///stopping criterion for inner loop
+                                        ///(default 1e-5)
+    double parameter_threshold = 1e-5;  ///< Not used so far!
+    int max_inner_loop_iterations = 0;  ///< Maximum number of iterations for
+                                        ///weight optimization (0 for infinite)
+    int max_outer_loop_iterations = 0;  ///< Maximum number of iterations for
+                                        ///feature set expansion (0 for
+                                        ///infinite)
+    double likelihood_threshold = 0;    ///< Threshold on (f-f')/f as stopping
+                                        ///criterion for inner and outer loop
+                                        ///(separately)
     // other stuff
     data_t data;
     std::set<int> unique_actions;
@@ -187,25 +213,33 @@ protected:
 public:
     TemporallyExtendedModel() = default;
     virtual ~TemporallyExtendedModel() = default;
-    virtual AbstractTemporallyExtendedModel & set_regularization(double d) override {regularization=d;return *this;}
-    virtual AbstractTemporallyExtendedModel & set_data(const data_t &) override;
-    virtual AbstractTemporallyExtendedModel & set_horizon_extension(int n) override {horizon_extension=n;return *this;}
-    virtual AbstractTemporallyExtendedModel & set_maximum_horizon(int n) override {maximum_horizon=n;return *this;}
-    virtual double optimize() override;
-    virtual double get_prediction(const data_t & data) override;
-    virtual AbstractTemporallyExtendedModel & set_gradient_threshold(double d) override {gradient_threshold=d;return *this;}
-    virtual AbstractTemporallyExtendedModel & set_parameter_threshold(double d) override {parameter_threshold=d;return *this;}
-    virtual AbstractTemporallyExtendedModel & set_max_inner_loop_iterations(int n) override {max_inner_loop_iterations=n;return *this;}
-    virtual AbstractTemporallyExtendedModel & set_max_outer_loop_iterations(int n) override {max_outer_loop_iterations=n;return *this;}
-    virtual AbstractTemporallyExtendedModel & set_likelihood_threshold(double d) override {likelihood_threshold=d;return *this;}
-    double optimize_weights() override;
-    const feature_set_t & get_feature_set() const;
+    virtual TemporallyExtendedModel & set_regularization(double d) {regularization=d;return *this;}
+    virtual TemporallyExtendedModel & set_data(const data_t &);
+    virtual TemporallyExtendedModel & set_horizon_extension(int n) {horizon_extension=n;return *this;}
+    virtual TemporallyExtendedModel & set_maximum_horizon(int n) {maximum_horizon=n;return *this;}
+    virtual double optimize();
+    virtual double get_prediction(const data_t & data) const;
+    virtual TemporallyExtendedModel & set_gradient_threshold(double d) {gradient_threshold=d;return *this;}
+    virtual TemporallyExtendedModel & set_parameter_threshold(double d) {parameter_threshold=d;return *this;}
+    virtual TemporallyExtendedModel & set_max_inner_loop_iterations(int n) {max_inner_loop_iterations=n;return *this;}
+    virtual TemporallyExtendedModel & set_max_outer_loop_iterations(int n) {max_outer_loop_iterations=n;return *this;}
+    virtual TemporallyExtendedModel & set_likelihood_threshold(double d) {likelihood_threshold=d;return *this;}
+    double optimize_weights();
+    const feature_set_t & get_feature_set() const {return feature_set;}
     bool check_derivatives();
     void expand_feature_set();
     void shrink_feature_set();
     void print_feature_set();
 protected:
     void update_F_matrices();
+    static void fill_F_matrix(const feature_set_t & feature_set,
+                              const std::set<int> & unique_actions,
+                              const std::set<int> & unique_observations,
+                              const std::set<double> & unique_rewards,
+                              const data_t & data,
+                              const int & data_idx,
+                              mat_t & F_matrix,
+                              int & outcome_index);
     static lbfgsfloatval_t neg_log_likelihood(void * instance,
                                               const lbfgsfloatval_t * weights,
                                               lbfgsfloatval_t * gradient,
