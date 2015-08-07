@@ -198,17 +198,19 @@ public:
     virtual AbstractTemporallyExtendedModel & set_max_inner_loop_iterations(int n) override {max_inner_loop_iterations=n;return *this;}
     virtual AbstractTemporallyExtendedModel & set_max_outer_loop_iterations(int n) override {max_outer_loop_iterations=n;return *this;}
     virtual AbstractTemporallyExtendedModel & set_likelihood_threshold(double d) override {likelihood_threshold=d;return *this;}
-protected:
+    double optimize_weights() override;
+    const feature_set_t & get_feature_set() const;
+    bool check_derivatives();
     void expand_feature_set();
-    double optimize_feature_weights();
     void shrink_feature_set();
     void print_feature_set();
+protected:
     void update_F_matrices();
     static lbfgsfloatval_t neg_log_likelihood(void * instance,
                                               const lbfgsfloatval_t * weights,
                                               lbfgsfloatval_t * gradient,
                                               const int n,
-                                              const lbfgsfloatval_t step);
+                                              const lbfgsfloatval_t step = lbfgsfloatval_t());
     static int progress(void * instance,
                         const lbfgsfloatval_t * weights,
                         const lbfgsfloatval_t * gradient,

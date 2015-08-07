@@ -36,8 +36,14 @@ public:
     virtual AbstractTemporallyExtendedModel & set_maximum_horizon(int n) = 0;
 
     /**
-     * Optimize the model. */
+     * Optimize the model. This runs to whole optimization procedure for the
+     * feature set, which includes optimizing the weights in the inner loop. */
     virtual double optimize() = 0;
+
+    /**
+     * Optimize the feature weights. This runs only the optimization procedure
+     * for the feature weights. */
+    virtual double optimize_weights() = 0;
 
     /**
      * Get a prediction. The data are assumed to represent the past except for

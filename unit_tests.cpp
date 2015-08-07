@@ -8,19 +8,17 @@
 #define DEBUG_LEVEL 1
 #include "debug.h"
 
+using std::cout;
+using std::endl;
 using std::shared_ptr;
 using std::make_shared;
 
-TEST(ATEM, BasicTest) {
-
+class TemporallyExtendedModelTest: public ::testing::Test {
+protected:
     typedef TemporallyExtendedModel::data_t data_t;
     typedef TemporallyExtendedModel::data_point_t data_point_t;
-
-    shared_ptr<AbstractTemporallyExtendedModel> model = make_shared<TemporallyExtendedModel>();
-
-    data_t data;
-    {
-        // use in implementation of the simple 2x2 world
+    virtual void SetUp() {
+        // use an implementation of the simple 2x2 world
         int one_step_observation = 0;
         int two_step_observation = 0;
         for(int i=0; i<10000; ++i) {
@@ -49,7 +47,7 @@ TEST(ATEM, BasicTest) {
             }
             double reward = (two_step_observation==0 && observation==3)?1:0;
             // print transitions
-            IF_DEBUG(1) {
+            IF_DEBUG(2) {
                 const char * action_char = "";
                 switch(action) {
                 case 0:
@@ -96,20 +94,38 @@ TEST(ATEM, BasicTest) {
             one_step_observation = observation;
         }
     }
+    //virtual void TearDown();
+    data_t data;
+};
 
+TEST_F(TemporallyExtendedModelTest, Learn) {
+    auto TEM = new TemporallyExtendedModel();
+    shared_ptr<AbstractTemporallyExtendedModel> model(TEM);
+    double reg = 0.0001;
     double obj = model->set_data(data).
-        set_regularization(0.001).
+        set_regularization(reg).
         set_horizon_extension(1).
         set_maximum_horizon(2).
-        // set_likelihood_threshold(1e-10).
-        // set_gradient_threshold(1e-10).
-        // set_parameter_threshold(1e-10).
-        // set_max_inner_loop_iterations(100).
         set_max_outer_loop_iterations(2).
         optimize();
-    //double obj = model->set_data(data).optimize();
-    DEBUG_OUT(0,"Objective value: " << obj);
+    DEBUG_OUT(1, "likelihood=" << obj << ", regularization=" << reg);
+    obj = model->set_regularization(0).optimize_weights();
+    DEBUG_OUT(1, "likelihood=" << obj << ", regularization=" << 0);
+    TEM->print_feature_set();
+    // double pred =  model->get_prediction(data);
+    // cout << "Prediction: " << pred << endl;
+}
 
-    double pred =  model->get_prediction(data);
-    DEBUG_OUT(0,"Prediction: " << pred);
+TEST_F(TemporallyExtendedModelTest, Derivatives) {
+    // expand twice (to get an acceptably large feature set) with only one
+    // optimization step of the weights (to get weight to non-zero but not
+    // at optimum, where the gradient is zero)
+    TemporallyExtendedModel TEM;
+    TEM.set_data(data).
+        set_regularization(0.001).
+        set_max_outer_loop_iterations(1).
+        set_max_inner_loop_iterations(1);
+    TEM.optimize();
+    TEM.optimize();
+    EXPECT_TRUE(TEM.check_derivatives());
 }

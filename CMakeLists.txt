@@ -5,6 +5,7 @@ add_definitions(
     -std=c++0x
     -Wall
     -Wnon-virtual-dtor
+    -fopenmp
 )
 
 ## build types
@@ -38,5 +39,6 @@ target_link_libraries(GTest PUBLIC
     -lgtest
     -larmadillo
     -llbfgs
+    -lgomp
     ATEM
 )

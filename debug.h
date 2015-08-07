@@ -24,18 +24,22 @@ namespace { // anonymous namespace for encapsulation
     public:
         static std::vector<bool> close_indentation;
         DEBUG_INDENTATION() {
+            #pragma omp critical
             close_indentation.push_back(false);
         }
         ~DEBUG_INDENTATION() {
-            if(close_indentation.back()) {
-                std::cout << DEBUG_STRING;
-                for(uint indent=0; indent<DEBUG_INDENTATION::close_indentation.size(); ++indent) {
-                    if(indent<DEBUG_INDENTATION::close_indentation.size()-1) std::cout << "│   ";
-                    else std::cout << "┷   ";
+            #pragma omp critical
+            {
+                if(close_indentation.back()) {
+                    std::cout << DEBUG_STRING;
+                    for(uint indent=0; indent<DEBUG_INDENTATION::close_indentation.size(); ++indent) {
+                        if(indent<DEBUG_INDENTATION::close_indentation.size()-1) std::cout << "│   ";
+                        else std::cout << "┷   ";
+                    }
+                    std::cout << std::endl;
                 }
-                std::cout << std::endl;
+                close_indentation.pop_back();
             }
-            close_indentation.pop_back();
         }
     };
     std::vector<bool> DEBUG_INDENTATION::close_indentation;
@@ -85,6 +89,8 @@ namespace { // anonymous namespace for encapsulation
     }
 
 #else // DEBUG
+
+#define DEBUG_INDENT {}
 
 #define IF_DEBUG(level) if(false)
 

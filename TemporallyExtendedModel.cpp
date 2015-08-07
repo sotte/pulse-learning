@@ -4,13 +4,17 @@
 
 #include "lbfgs_codes.h"
 
+#include <omp.h>
+#define USE_OMP
+
 #define DEBUG_STRING "TEM: "
-#define DEBUG_LEVEL 3
+#define DEBUG_LEVEL 4
 #include "debug.h"
 
 using std::cout;
 using std::endl;
 using arma::zeros;
+using std::vector;
 
 typedef TemporallyExtendedModel::action_t action_t;
 typedef TemporallyExtendedModel::observation_t observation_t;
@@ -121,15 +125,15 @@ double TemporallyExtendedModel::optimize() {
     double likelihood = 0;
 
     // outer optimization loop
-    for(int outer_loop_iteration=0;
-        (max_outer_loop_iterations<=0 || outer_loop_iteration<max_outer_loop_iterations);
+    for(int outer_loop_iteration=1;
+        (max_outer_loop_iterations<=0 || outer_loop_iteration<=max_outer_loop_iterations);
         ++outer_loop_iteration) {
         DEBUG_OUT(2,"Iteration " << outer_loop_iteration);
         DEBUG_INDENT;
 
         // expand --> optimize --> shrink
         expand_feature_set();
-        double new_likelihook = optimize_feature_weights();
+        double new_likelihook = optimize_weights();
         shrink_feature_set();
 
         // checking terminal conditions
@@ -147,6 +151,122 @@ double TemporallyExtendedModel::optimize() {
 double TemporallyExtendedModel::get_prediction(const data_t &) {
     DEBUG_OUT(1,"get_prediction()");
     return 0;
+}
+
+double TemporallyExtendedModel::optimize_weights() {
+    DEBUG_OUT(3,"Optimizting weights");
+    DEBUG_INDENT;
+    // update F-matrices
+    update_F_matrices();
+    // optimize weights
+    lbfgsfloatval_t objective_value;
+    {
+        DEBUG_OUT(4,"optimize");
+        // initialize the parameters
+        lbfgs_parameter_t param;
+        lbfgs_parameter_init(&param);
+        param.orthantwise_c = regularization;
+        param.delta = likelihood_threshold;
+        param.epsilon = gradient_threshold;
+        if(regularization!=0) {
+            param.linesearch = LBFGS_LINESEARCH_BACKTRACKING;
+        }
+        if(max_inner_loop_iterations>0) {
+            param.max_iterations = max_inner_loop_iterations;
+        }
+        // initialize variables
+        lbfgsfloatval_t * weights = lbfgs_malloc(feature_set.size());
+        // set weights
+        {
+            int feature_idx = 0;
+            for(auto & feature : feature_set) {
+                weights[feature_idx] = feature.second;
+                ++feature_idx;
+            }
+        }
+        // start the L-BFGS optimization
+        auto ret = lbfgs(feature_set.size(),
+                         weights,
+                         &objective_value,
+                         neg_log_likelihood,
+                         progress,
+                         this,
+                         &param);
+        IF_DEBUG(1) {cout << endl;}
+        DEBUG_OUT(1,"status code = " << ret << " ( " << lbfgs_code(ret) << " )");
+        // get weights
+        {
+            int feature_idx = 0;
+            for(auto & feature : feature_set) {
+                feature.second = weights[feature_idx];
+                ++feature_idx;
+            }
+        }
+        // free weights
+        lbfgs_free(weights);
+    }
+    // print likelihood
+    DEBUG_OUT(3,"likelihood = " << exp(-objective_value));
+    return exp(-objective_value);
+}
+
+const TemporallyExtendedModel::feature_set_t & TemporallyExtendedModel::get_feature_set() const {
+    return feature_set;
+}
+
+bool TemporallyExtendedModel::check_derivatives() {
+    DEBUG_OUT(1,"Checking derivatives");
+    DEBUG_INDENT;
+    // initialize some vectors
+    vector<double> weights, weights_copy, gradient(feature_set.size()), diffs(feature_set.size());
+    for(auto & feature : feature_set) weights.push_back(feature.second);
+    weights_copy = weights;
+    // delta/epsilon
+    double delta = 1e-5;
+    double epsilon = 1e-5;
+    // update F-matrices
+    update_F_matrices();
+    // compute numerical gradient by symmetric finite differences
+    for(int dim=0; dim<(int)feature_set.size(); ++dim) {
+        weights_copy[dim] = weights[dim] + delta;
+        double plus = neg_log_likelihood(this,
+                                         &(weights_copy.front()),
+                                         &(gradient.front()),
+                                         feature_set.size());
+        weights_copy[dim] = weights[dim] - delta;
+        double minus = neg_log_likelihood(this,
+                                          &(weights_copy.front()),
+                                          &(gradient.front()),
+                                          feature_set.size());
+        weights_copy[dim] = weights[dim];
+        diffs[dim] = plus - minus;
+    }
+    // calculate gradient at center
+    double objective_value = neg_log_likelihood(this,
+                                                &(weights.front()),
+                                                &(gradient.front()),
+                                                feature_set.size());
+    // compare numerical and analytical gradient accepting both a small absolute
+    // difference as well as a small relative difference
+    bool ok = true;
+    DEBUG_OUT(2,"ERROR	dim	analytical	numerical	difference	weight	(fx=" << objective_value << ")");
+    for(int dim=0; dim<(int)feature_set.size(); ++dim) {
+        double grad = diffs[dim]/(2*delta);
+        if(fabs(grad-gradient[dim])>epsilon &&
+           fabs(grad-gradient[dim])/fabs(objective_value)>epsilon) {
+            if(ok && DEBUG_LEVEL==1) {
+                DEBUG_OUT(1,"ERROR	dim	analytical	numerical	difference	weight	(fx=" << objective_value << ")");
+            }
+            ok = false;
+            DEBUG_OUT(1,"ERROR	" << dim << "	" << gradient[dim] << "	" << grad
+                      << "	" << fabs(grad-gradient[dim]) << "	" << weights[dim]);
+        } else {
+            DEBUG_OUT(2,"	" << dim << "	" << gradient[dim] << "	" << grad
+                      << "	" << fabs(grad-gradient[dim]) << "	" << weights[dim]);
+        }
+    }
+    if(ok) DEBUG_OUT(1,"no errors");
+    return ok;
 }
 
 void TemporallyExtendedModel::expand_feature_set() {
@@ -246,64 +366,9 @@ void TemporallyExtendedModel::expand_feature_set() {
     }
     // print
     DEBUG_OUT(3,"Expanded feature set (" << initial_feature_set.size() << " --> " << feature_set.size() << ")");
-    IF_DEBUG(4) {
+    IF_DEBUG(6) {
         print_feature_set();
     }
-}
-
-double TemporallyExtendedModel::optimize_feature_weights() {
-    DEBUG_OUT(3,"Optimizting feature weights");
-    DEBUG_INDENT;
-    // update F-matrices
-    update_F_matrices();
-    // optimize weights
-    lbfgsfloatval_t objective_value;
-    {
-        // initialize the parameters
-        lbfgs_parameter_t param;
-        lbfgs_parameter_init(&param);
-        param.orthantwise_c = regularization;
-        param.delta = likelihood_threshold;
-        param.epsilon = gradient_threshold;
-        if(regularization!=0) {
-            param.linesearch = LBFGS_LINESEARCH_BACKTRACKING;
-        }
-        if(max_inner_loop_iterations>0) {
-            param.max_iterations = max_inner_loop_iterations;
-        }
-        // initialize variables
-        lbfgsfloatval_t * weights = lbfgs_malloc(feature_set.size());
-        // set weights
-        {
-            int feature_idx = 0;
-            for(auto & feature : feature_set) {
-                weights[feature_idx] = feature.second;
-                ++feature_idx;
-            }
-        }
-        // start the L-BFGS optimization
-        auto ret = lbfgs(feature_set.size(),
-                         weights,
-                         &objective_value,
-                         neg_log_likelihood,
-                         progress,
-                         this,
-                         &param);
-        DEBUG_OUT(1,"status code = " << ret << " ( " << lbfgs_code(ret) << " )");
-        // get weights
-        {
-            int feature_idx = 0;
-            for(auto & feature : feature_set) {
-                feature.second = weights[feature_idx];
-                ++feature_idx;
-            }
-        }
-        // free weights
-        lbfgs_free(weights);
-    }
-    // print likelihood
-    DEBUG_OUT(3,"likelihood = " << exp(-objective_value));
-    return exp(-objective_value);
 }
 
 void TemporallyExtendedModel::shrink_feature_set() {
@@ -319,7 +384,7 @@ void TemporallyExtendedModel::shrink_feature_set() {
     }
     // print
     DEBUG_OUT(3,"Shrunk feature set (" << old_size << " --> " << feature_set.size() << ")");
-    IF_DEBUG(4) {
+    IF_DEBUG(6) {
         print_feature_set();
     }
 }
@@ -338,22 +403,27 @@ void TemporallyExtendedModel::print_feature_set() {
 }
 
 void TemporallyExtendedModel::update_F_matrices() {
-    DEBUG_OUT(4,"Update F-matrices");
+    DEBUG_OUT(4,"update F-matrices");
     DEBUG_INDENT;
     F_matrices.assign(data.size(),
                       zeros<mat_t>(feature_set.size(),
                                    unique_observations.size()*unique_rewards.size()));
+    int progress = 0;
+    #ifdef USE_OMP
+    #pragma omp parallel for schedule(static) collapse(1)
+    #endif
     for(int data_idx=0; data_idx<(int)data.size(); ++data_idx) {
-        DEBUG_OUT(5,"data point " << data_idx);
+        DEBUG_OUT(6,"data point " << data_idx);
         DEBUG_INDENT;
         int feature_idx = 0; // row index
         for(auto & feature : feature_set) {
-            DEBUG_OUT(5,"Feature " << feature_idx);
+            DEBUG_OUT(6,"Feature " << feature_idx);
             DEBUG_INDENT;
             int outcome_idx = 0; // column index
             for(auto & observation : unique_observations) {
                 for(auto & reward : unique_rewards) {
-                    DEBUG_OUT(5,"Outcome " << outcome_idx << " (" << observation << ", " << reward << ")");
+                    DEBUG_OUT(6,"Outcome " << outcome_idx
+                              << " (" << observation << ", " << reward << ")");
                     DEBUG_INDENT;
                     bool is_true = true;
                     for(auto & basis_feature : feature.first) {
@@ -363,11 +433,11 @@ void TemporallyExtendedModel::update_F_matrices() {
                         BASIS_FEATURE(tuple, type, time, value);
                         tuple = basis_feature;
                         DEBUG_EXPECT(time<=0);
-                        DEBUG_OUT(5,"Basis feature " << basis_feature);
+                        DEBUG_OUT(6,"Basis feature " << basis_feature);
                         DEBUG_INDENT;
                         // is the required time index accessible?
                         if(data_idx+time<0) {
-                            DEBUG_OUT(5,"time idx inaccessible");
+                            DEBUG_OUT(6,"time idx inaccessible");
                             is_true = false;
                             break;
                         }
@@ -390,21 +460,35 @@ void TemporallyExtendedModel::update_F_matrices() {
                         }
                         // break
                         if(!is_true) {
-                            DEBUG_OUT(5,"value mismatch");
+                            DEBUG_OUT(6,"value mismatch");
                             break;
                         }
                     }
                     if(is_true) {
                         F_matrices[data_idx](feature_idx,outcome_idx) = 1;
-                        DEBUG_OUT(5,"true");
+                        DEBUG_OUT(6,"true");
                     } else {
-                        DEBUG_OUT(5,"false");
+                        DEBUG_OUT(6,"false");
                     }
                     ++outcome_idx;
                 }
             }
             ++feature_idx;
         }
+        #ifdef USE_OMP
+        #pragma omp critical (TemporallyExtendedModel)
+        #endif
+        {
+            ++progress;
+            IF_DEBUG(4) {
+                cout << "\r" << (100*progress)/data.size() << "%" << std::flush;
+                IF_DEBUG(6) cout << endl;
+            }
+        } // end critical
+    } // end parallel
+    IF_DEBUG(4) {
+        IF_DEBUG(6);// nothing to do
+        else cout << endl;
     }
 }
 
@@ -429,6 +513,9 @@ lbfgsfloatval_t TemporallyExtendedModel::neg_log_likelihood(void * instance,
     grad.zeros(TEM_instance->feature_set.size());
 
     // sum over data points
+    #ifdef USE_OMP
+    #pragma omp parallel for schedule(static) collapse(1)
+    #endif
     for(int data_idx=0; data_idx<data_n; ++data_idx) {
         // use references to improve readability
         const auto & F = TEM_instance->F_matrices[data_idx];
@@ -441,9 +528,14 @@ lbfgsfloatval_t TemporallyExtendedModel::neg_log_likelihood(void * instance,
         double obj_term = lin(outcome_idx)-log(z);
         col_vec_t grad_term = F.col(outcome_idx) - F*exp_lin.t()/z;
         // update objective and gradient
-        neg_log_like += obj_term;
-        grad += grad_term;
-    }
+        #ifdef USE_OMP
+        #pragma omp critical (TemporallyExtendedModel)
+        #endif
+        {
+            neg_log_like += obj_term;
+            grad += grad_term;
+        } // end critical
+    } // end parallel
 
     // divide by number of data points and reverse sign
     if(data_n>0) {
@@ -482,6 +574,7 @@ int TemporallyExtendedModel::progress(void * instance,
                                       int nr_variables,
                                       int iteration_nr,
                                       int ls) {
-    DEBUG_OUT(3,"Iteration " << iteration_nr << ", likelihood = " << exp(-objective_value));
+    IF_DEBUG(1) {cout << "\rIteration " << iteration_nr
+                      << ", likelihood = " << exp(-objective_value) << std::flush;}
     return 0;
 }
