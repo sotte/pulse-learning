@@ -8,3 +8,7 @@ multi-core machines. Also, the RELEASE target is much faster (about a factor of
 10) than the DEBUG target, which is presumably due to disabling debug
 checks/output on the preprocessor level and optimizing the code aggressively
 (-O3).
+
+## Dependencies
+
+pulse-learning uses an [L-BFGS library](http://www.chokkan.org/software/liblbfgs/) for optimizing the feature weights. For Linux (at least Arch and Ubuntu) there are ready-made packages available.
