@@ -17,7 +17,7 @@ using std::make_shared;
 class TemporallyExtendedModelTest: public ::testing::Test {
 protected:
     typedef TemporallyExtendedModel::data_t data_t;
-    typedef TemporallyExtendedModel::data_point_t data_point_t;
+    typedef TemporallyExtendedModel::DataPoint DataPoint;
     virtual void SetUp() {
         // use an implementation of the simple 2x2 world
         int one_step_observation = 0;
@@ -89,7 +89,7 @@ protected:
                 DEBUG_OUT(1,action_char << " --> " << observation_char << " / " << reward);
             }
             // store to data
-            data.push_back(data_point_t(action, observation, reward));
+            data.push_back(DataPoint(action, observation, reward));
             // update memory
             two_step_observation = one_step_observation;
             one_step_observation = observation;
@@ -102,15 +102,13 @@ protected:
 
 TEST_F(TemporallyExtendedModelTest, DataTest) {
     // count occurrences in data
-    int action, observation, reward;
     std::map<int,int> action_map, observation_map, reward_map;
-    std::map<std::tuple<int,int,int>,int> transition_map;
+    std::map<DataPoint,int> transition_map;
     for(auto point : data) {
-        std::tuple<int&,int&,int&>(action,observation,reward) = point;
-        ++action_map[action];
-        ++observation_map[observation];
-        ++reward_map[reward];
-        ++transition_map[std::make_tuple(action,observation,reward)];
+        ++action_map[point.action];
+        ++observation_map[point.observation];
+        ++reward_map[point.reward];
+        ++transition_map[point];
     }
     // check number of unique value
     EXPECT_EQ(action_map.size(),5)
@@ -133,8 +131,7 @@ TEST_F(TemporallyExtendedModelTest, DataTest) {
     EXPECT_LT(reward_map[1],data_n/10)
         << "A reward of 1 was received " << reward_map[1] << " times in " << data_n << " steps, which is more than expected";
     for(auto t : transition_map) {
-        std::tuple<int&,int&,int&>(action,observation,reward) = t.first;
-        if(reward==0) EXPECT_GT(t.second,data_n/28);
+        if(t.first.reward==0) EXPECT_GT(t.second,data_n/28);
         else EXPECT_LT(t.second,data_n/28);
     }
 }
@@ -159,9 +156,7 @@ TEST_F(TemporallyExtendedModelTest, FeatureTest) {
     // check features
     for(int data_idx=0; data_idx<(int)data.size(); ++data_idx) {
         IF_DEBUG(2) {
-            int action, observation, reward;
-            std::tuple<int&,int&,int&>(action,observation,reward) = data[data_idx];
-            DEBUG_OUT(2,"data point " << data_idx << ":	" << action << "	" << observation << "	" << reward);
+            DEBUG_OUT(2,"data point " << data_idx << ":	" << data[data_idx].action << "	" << data[data_idx].observation << "	" << data[data_idx].reward);
         }
         DEBUG_INDENT;
         int feature_idx = 0;
@@ -179,19 +174,17 @@ TEST_F(TemporallyExtendedModelTest, FeatureTest) {
                 if(data_idx+time<0) {
                     this_one_true = false;
                 }
-                int action, observation, reward;
-                std::tuple<int&,int&,int&>(action,observation,reward) = data[data_idx+time];
                 switch(type) {
                 case TemporallyExtendedModel::ACTION:
-                    if(action!=value) this_one_true = false;
+                    if(data[data_idx+time].action!=value) this_one_true = false;
                     DEBUG_OUT(3,"a(" << value << "," << time << ")=" << this_one_true);
                     break;
                 case TemporallyExtendedModel::OBSERVATION:
-                    if(observation!=value) this_one_true = false;
+                    if(data[data_idx+time].observation!=value) this_one_true = false;
                     DEBUG_OUT(3,"o(" << value << "," << time << ")=" << this_one_true);
                     break;
                 case TemporallyExtendedModel::REWARD:
-                    if(reward!=value) this_one_true = false;
+                    if(data[data_idx+time].reward!=value) this_one_true = false;
                     DEBUG_OUT(3,"r(" << value << "," << time << ")=" << this_one_true);
                     break;
                 }

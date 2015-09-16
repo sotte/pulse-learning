@@ -22,12 +22,6 @@ typedef TemporallyExtendedModel::reward_t reward_t;
 
 // some helper macros and functions
 
-#define DATA_POINT(name, action, observation, reward)                   \
-    TemporallyExtendedModel::action_t action;                           \
-    TemporallyExtendedModel::observation_t observation;                 \
-    TemporallyExtendedModel::reward_t reward;                           \
-    std::tuple<action_t&,observation_t&,reward_t&> name(action,observation,reward);
-
 #define BASIS_FEATURE(name, type, time, value)                          \
     TemporallyExtendedModel::FEATURE_TYPE type;                         \
     int time;                                                           \
@@ -55,6 +49,24 @@ std::ostream& operator<<(std::ostream & out,
 
 // member function definitions
 
+TemporallyExtendedModel::DataPoint::DataPoint(action_t action,
+                                              observation_t observation,
+                                              reward_t reward):
+    action(action),
+    observation(observation),
+    reward(reward)
+{}
+
+bool TemporallyExtendedModel::DataPoint::operator<(const DataPoint & other) const {
+    if(action<other.action) return true;
+    if(action>other.action) return false;
+    if(observation<other.observation) return true;
+    if(observation>other.observation) return false;
+    if(reward<other.reward) return true;
+    if(reward>other.reward) return false;
+    return false;
+}
+
 TemporallyExtendedModel & TemporallyExtendedModel::set_data(const data_t & data_) {
     DEBUG_OUT(1,"Set data");
     DEBUG_INDENT;
@@ -63,12 +75,10 @@ TemporallyExtendedModel & TemporallyExtendedModel::set_data(const data_t & data_
     unique_actions.clear();
     unique_observations.clear();
     unique_rewards.clear();
-    for(auto & d : data) {
-        DATA_POINT(point, action, observation, reward);
-        point = d;
-        unique_actions.insert(action);
-        unique_observations.insert(observation);
-        unique_rewards.insert(reward);
+    for(auto & point : data) {
+        unique_actions.insert(point.action);
+        unique_observations.insert(point.observation);
+        unique_rewards.insert(point.reward);
     }
     // debug output
     IF_DEBUG(3) {
@@ -137,12 +147,8 @@ double TemporallyExtendedModel::get_prediction(const data_t & pred_data) const {
     // case they did not occur in the training data
     auto unique_observations_copy = unique_observations;
     auto unique_rewards_copy = unique_rewards;
-    {
-        DATA_POINT(tuple, action, observation, reward);
-        tuple = pred_data.back();
-        unique_observations_copy.insert(observation);
-        unique_rewards_copy.insert(reward);
-    }
+    unique_observations_copy.insert(pred_data.back().observation);
+    unique_rewards_copy.insert(pred_data.back().reward);
     // comput F-matrix
     mat_t F = zeros<mat_t>(feature_set.size(),
                            unique_observations_copy.size()*unique_rewards_copy.size());
@@ -477,12 +483,8 @@ void TemporallyExtendedModel::fill_F_matrix(const feature_set_t & feature_set,
                           << " (" << observation << ", " << reward << ")");
                 DEBUG_INDENT;
                 // check for matching outcome index
-                {
-                    DATA_POINT(tuple, data_action, data_observation, data_reward);
-                    tuple = data[data_idx];
-                    if(observation==data_observation && reward==data_reward)
-                        matching_outcome_index = outcome_idx;
-                }
+                if(observation==data[data_idx].observation && reward==data[data_idx].reward)
+                    matching_outcome_index = outcome_idx;
                 // check basis features
                 bool is_true = true;
                 for(auto & basis_feature : feature.first) {
@@ -500,21 +502,18 @@ void TemporallyExtendedModel::fill_F_matrix(const feature_set_t & feature_set,
                         is_true = false;
                         break;
                     }
-                    // get data point from required time
-                    DATA_POINT(data_point, data_action, data_observation, data_reward);
-                    data_point = data[data_idx+time];
                     // does the value match?
                     switch(type) {
                     case ACTION:
-                        if(data_action!=value) is_true = false;
+                        if(data[data_idx+time].action!=value) is_true = false;
                         break;
                     case OBSERVATION:
                         if(time==0 && observation!=value) is_true = false;
-                        if(time!=0 && data_observation!=value) is_true = false;
+                        if(time!=0 && data[data_idx+time].observation!=value) is_true = false;
                         break;
                     case REWARD:
                         if(time==0 && reward!=value) is_true = false;
-                        if(time!=0 && data_reward!=value) is_true = false;
+                        if(time!=0 && data[data_idx+time].reward!=value) is_true = false;
                         break;
                     }
                     // break

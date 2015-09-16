@@ -2,7 +2,6 @@
 #define TEMPORALLY_EXTENDED_MODEL_H_
 
 #include <vector>
-#include <tuple>
 #include <set>
 #include <map>
 
@@ -171,8 +170,14 @@ public:
     typedef int action_t;
     typedef int observation_t;
     typedef double reward_t;
-    typedef std::tuple<action_t,observation_t,reward_t> data_point_t;
-    typedef std::vector<data_point_t> data_t;
+    struct DataPoint {
+        DataPoint(action_t action, observation_t observation, reward_t reward);
+        bool operator<(const DataPoint & other) const;
+        action_t action;
+        observation_t observation;
+        reward_t reward;
+    };
+    typedef std::vector<DataPoint> data_t;
     enum FEATURE_TYPE { ACTION, OBSERVATION, REWARD };
     typedef std::tuple<FEATURE_TYPE,int,double> basis_feature_t;
     typedef std::set<basis_feature_t> feature_t;
