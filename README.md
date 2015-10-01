@@ -11,4 +11,11 @@ checks/output on the preprocessor level and optimizing the code aggressively
 
 ## Dependencies
 
-pulse-learning uses an [L-BFGS library](http://www.chokkan.org/software/liblbfgs/) for optimizing the feature weights. For Linux (at least Arch and Ubuntu) there are ready-made packages available.
+pulse-learning uses an [L-BFGS
+library](http://www.chokkan.org/software/liblbfgs/) for optimizing the feature
+weights. For Linux (at least Arch and Ubuntu) there are ready-made packages
+available.
+
+Ubuntu:
+
+    sudo apt-get install libarmadillo-dev liblbfgs-dev
