@@ -19,3 +19,11 @@ available.
 Ubuntu:
 
     sudo apt-get install libarmadillo-dev liblbfgs-dev
+
+
+## Getting Started
+
+    mkdir build
+    cd build
+    cmake -DCMAKE_BUILD_TYPE=DEBUG ..
+    make
