@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8)
 
 ## some standard compiler flags
 add_definitions(
@@ -28,15 +28,15 @@ add_library(ATEM
 #target_link_libraries(ATEM PUBLIC Qt5::Core)
 
 ## Unittests
-add_executable(GTest
-    main.cpp
-    TemporallyExtendedModel.h
-    unit_tests.cpp
-)
-target_link_libraries(GTest PUBLIC
-    -lgtest
-    -larmadillo
-    -llbfgs
-    -lgomp
-    ATEM
-)
+# add_executable(GTest
+#     main.cpp
+#     TemporallyExtendedModel.h
+#     unit_tests.cpp
+# )
+# target_link_libraries(GTest PUBLIC
+#     -lgtest
+#     -larmadillo
+#     -llbfgs
+#     -lgomp
+#     ATEM
+# )
