@@ -34,7 +34,7 @@ Ubuntu:
 After creating the static lib `libsimplepulse.a` (see "Getting Started") you
 can create and test the python interface:
 
-    python setup.py build_ext --inplace
+    ./create_python_interface.sh
 
 Or manually run the minimal example:
 
