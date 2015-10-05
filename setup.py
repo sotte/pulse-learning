@@ -7,10 +7,10 @@ ext = Extension(
     name="pypulse",
     sources=["pypulse.pyx"],
     language="c++",
-    extra_compile_args=["-std=c++11", '-fPIC'],
+    extra_compile_args=['-std=c++11', '-fPIC', '-fopenmp'],
     include_dirs=[r'.'],
-    library_dirs=[r'.'],
-    libraries=['simplepulse', 'lbfgs'],  # use build/lisimplebpulse.a
+    library_dirs=[r'build/', r'/usr/lib/'],
+    libraries=['simplepulse', 'lbfgs', 'gomp', 'armadillo'],
 )
 
 setup(

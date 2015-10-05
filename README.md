@@ -27,3 +27,15 @@ Ubuntu:
     cd build
     cmake -DCMAKE_BUILD_TYPE=DEBUG ..
     make
+
+
+## The Python Interface
+
+After creating the static lib `libsimplepulse.a` (see "Getting Started") you
+can create the python interface
+
+    python setup.py build_ext --inplace
+
+and test it
+
+    python test_pypulse.py

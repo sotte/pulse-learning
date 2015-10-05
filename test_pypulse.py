@@ -6,7 +6,7 @@ import pypulse
 print('Creating pupulse instance')
 model = pypulse.PyPulse()
 
-print('Clearing...')
+print('model.clear()')
 model.clear()
 
 print('DONE')
