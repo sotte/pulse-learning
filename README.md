@@ -18,7 +18,7 @@ available.
 
 Ubuntu:
 
-    sudo apt-get install libarmadillo-dev liblbfgs-dev
+    sudo apt-get install libarmadillo-dev liblbfgs-dev cython
 
 
 ## Getting Started
@@ -32,10 +32,10 @@ Ubuntu:
 ## The Python Interface
 
 After creating the static lib `libsimplepulse.a` (see "Getting Started") you
-can create the python interface
+can create and test the python interface:
 
     python setup.py build_ext --inplace
 
-and test it
+Or manually run the minimal example:
 
     python test_pypulse.py
