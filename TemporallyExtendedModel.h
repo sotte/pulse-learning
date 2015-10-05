@@ -216,8 +216,9 @@ protected:
 
     //----methods----//
 public:
-    TemporallyExtendedModel() = default;
-    virtual ~TemporallyExtendedModel() = default;
+    TemporallyExtendedModel(){};
+    virtual ~TemporallyExtendedModel(){};
+
     virtual TemporallyExtendedModel & set_regularization(double d) {regularization=d;return *this;}
     virtual TemporallyExtendedModel & set_data(const data_t &);
     virtual TemporallyExtendedModel & set_horizon_extension(int n) {horizon_extension=n;return *this;}

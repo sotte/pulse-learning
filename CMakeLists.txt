@@ -17,6 +17,9 @@ else()
     message(FATAL_ERROR "Unkown or unspecified Build Type. Use '-DCMAKE_BUILD_TYPE=<type>' with <type> being RELEASE, DEBUG when calling cmake")
 endif()
 
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+
 ## ATEM library
 add_library(ATEM
     TemporallyExtendedModel.h
@@ -24,6 +27,17 @@ add_library(ATEM
     lbfgs_codes.h
     lbfgs_codes.cpp
 )
+
+
+## simplepulse library
+add_library(simplepulse
+    SimpleInterface.cpp
+    TemporallyExtendedModel.h
+    TemporallyExtendedModel.cpp
+    lbfgs_codes.h
+    lbfgs_codes.cpp
+)
+
 #target_include_directories(ATEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 #target_link_libraries(ATEM PUBLIC Qt5::Core)
 
