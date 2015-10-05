@@ -11,10 +11,10 @@ checks/output on the preprocessor level and optimizing the code aggressively
 
 ## Dependencies
 
-pulse-learning uses an [L-BFGS
-library](http://www.chokkan.org/software/liblbfgs/) for optimizing the feature
-weights. For Linux (at least Arch and Ubuntu) there are ready-made packages
-available.
+`pulse-learning` uses the
+[L-BFGS library](http://www.chokkan.org/software/liblbfgs/)
+for optimizing the feature weights. For Linux (at least Arch and Ubuntu) there
+are ready-made packages available.
 
 Ubuntu:
 
@@ -39,3 +39,18 @@ can create and test the python interface:
 Or manually run the minimal example:
 
     python test_pypulse.py
+
+
+### Internals
+
+`SimpleInterface.cpp` is, you guessed it, a simple cpp interface around
+`TemporallyExtendedModel.h` which hides custom types and c++11-goodness
+(or c++11-pain in the context of cython)
+to ease wrapping with cython.
+
+`pypulse.pyx` defines the mapping from cpp (SimpleInterface.cpp) to python.
+
+Edit `pypulse.pyx` and `SimpleInterface.cpp` to add more functionality!
+
+The `setup.py` creates a `pypulse.cpp` from the `pypulse.pyx` file, creates
+`pypulse.so`, and links against `libsimplepulse.a`.
